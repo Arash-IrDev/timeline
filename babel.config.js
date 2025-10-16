@@ -18,19 +18,56 @@ module.exports = {
         visitor: {
           RegExpLiteral(path) {
             const { node } = path;
-            const { flags } = node;
+            const { pattern, flags } = node;
             
-            // Remove unsupported flags
-            if (flags.includes('s')) {
-              // Convert dotAll flag to workaround
-              const newFlags = flags.replace('s', '');
-              node.flags = newFlags;
+            // Fix problematic regex patterns
+            let newPattern = pattern;
+            
+            // Fix patterns like /^?\s*/ to /^\s*/
+            if (newPattern.includes('^?')) {
+              newPattern = newPattern.replace(/\^\\?/g, '^');
             }
             
+            // Fix other common problematic patterns
+            if (newPattern.includes('\\?\\s')) {
+              newPattern = newPattern.replace(/\\?\\s/g, '\\s');
+            }
+            
+            // Remove unsupported flags
+            let newFlags = flags;
+            if (flags.includes('s')) {
+              newFlags = newFlags.replace('s', '');
+            }
             if (flags.includes('u')) {
-              // Remove unicode flag if not supported
-              const newFlags = flags.replace('u', '');
+              newFlags = newFlags.replace('u', '');
+            }
+            
+            // Update the node if changes were made
+            if (newPattern !== pattern || newFlags !== flags) {
+              node.pattern = newPattern;
               node.flags = newFlags;
+            }
+          },
+          
+          // Also handle RegExp constructor calls
+          NewExpression(path) {
+            if (path.node.callee.name === 'RegExp') {
+              const args = path.node.arguments;
+              if (args.length >= 1 && args[0].type === 'StringLiteral') {
+                let pattern = args[0].value;
+                let flags = args[1]?.value || '';
+                
+                // Fix problematic patterns in RegExp constructor
+                if (pattern.includes('^?')) {
+                  pattern = pattern.replace(/\^\\?/g, '^');
+                  args[0].value = pattern;
+                }
+                
+                if (pattern.includes('\\?\\s')) {
+                  pattern = pattern.replace(/\\?\\s/g, '\\s');
+                  args[0].value = pattern;
+                }
+              }
             }
           }
         }

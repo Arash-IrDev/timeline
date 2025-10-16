@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test GAS Bundle</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        #app {
+            width: 100%;
+            height: 100vh;
+        }
+        .test-info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-info">
+        <div>Bundle loaded: <span id="status">Loading...</span></div>
+        <div>Window state: <span id="state">Checking...</span></div>
+    </div>
+    
+    <div id="app"></div>
+    
+    <script>
+        // Set initial state before loading the bundle
+        window.__markwhen_initial_state = {
+            initialized: false,
+            data: null
+        };
+        
+        console.log('Initial state set:', window.__markwhen_initial_state);
+        document.getElementById('state').textContent = 'Set';
+    </script>
+    
+    <!-- Load the bundled script -->
+    <script src="./dist/markwhen-timeline.iife.js"></script>
+    
+    <script>
+        // Check if bundle loaded successfully
+        setTimeout(() => {
+            const status = document.getElementById('status');
+            const state = document.getElementById('state');
+            
+            if (window.__markwhen_initial_state && window.__markwhen_initial_state.initialized) {
+                status.textContent = '✅ Success';
+                status.style.color = 'lightgreen';
+                state.textContent = 'Initialized';
+                state.style.color = 'lightgreen';
+            } else {
+                status.textContent = '❌ Failed';
+                status.style.color = 'red';
+                state.textContent = 'Not initialized';
+                state.style.color = 'red';
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

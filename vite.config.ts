@@ -5,6 +5,7 @@ import vue from "@vitejs/plugin-vue";
 import { viteSingleFile } from "vite-plugin-singlefile";
 import { babel } from '@rollup/plugin-babel';
 
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const isGasMode = mode === 'gas';
@@ -56,7 +57,9 @@ export default defineConfig(({ mode }) => {
         },
         format: {
           comments: false
-        }
+        },
+        // Don't mangle anything to preserve regex patterns
+        mangle: false
       }
     },
     server: {
