@@ -111,12 +111,25 @@ export const useLpc = (listeners?: MessageListeners) => {
   let socket: WebSocket | undefined;
   let hasConnected = false;
   if (wssUrl) {
-    socket = new WebSocket(wssUrl);
-    socket.onopen = () => {
-      hasConnected = true;
-      postRequest("appState");
-      postRequest("markwhenState");
-    };
+    try {
+      socket = new WebSocket(wssUrl);
+      socket.onopen = () => {
+        hasConnected = true;
+        console.debug("WebSocket connected to:", wssUrl);
+        postRequest("appState");
+        postRequest("markwhenState");
+      };
+      socket.onerror = (error) => {
+        console.debug("WebSocket connection failed:", error);
+        hasConnected = false;
+      };
+      socket.onclose = () => {
+        console.debug("WebSocket connection closed");
+        hasConnected = false;
+      };
+    } catch (error) {
+      console.debug("Failed to create WebSocket connection:", error);
+    }
   }
 
   let vscApi: { postMessage: (message: any) => void } | undefined = undefined;
@@ -140,7 +153,9 @@ export const useLpc = (listeners?: MessageListeners) => {
     ) {
       window.parent.postMessage(message, "*");
     } else {
-      console.error("Nothing to post to");
+      // Silently ignore messages when no communication channel is available
+      // This is expected behavior when running standalone
+      console.debug("No communication channel available, message ignored:", message.type);
     }
   };
 
@@ -210,5 +225,21 @@ export const useLpc = (listeners?: MessageListeners) => {
     });
   }
 
-  return { postRequest };
+  const getConnectionStatus = () => {
+    if (socket && hasConnected) {
+      return { type: 'websocket', connected: true, url: wssUrl };
+    } else if (typeof acquireVsCodeApi !== "undefined") {
+      return { type: 'vscode', connected: true };
+    } else if (
+      typeof window !== "undefined" &&
+      typeof window.parent !== "undefined" &&
+      window.parent !== window.self
+    ) {
+      return { type: 'parent-window', connected: true };
+    } else {
+      return { type: 'none', connected: false };
+    }
+  };
+
+  return { postRequest, getConnectionStatus };
 };

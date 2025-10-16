@@ -106,10 +106,32 @@ export const useMarkwhenStore = defineStore("markwhen", () => {
       };
       showEditButton.value = true;
       showCopyLinkButton.value = false;
+    } else {
+      // Load sample data if no specific data is provided
+      try {
+        const resp = await fetch('/sample.mw');
+        if (resp.ok) {
+          const text = await resp.text();
+          const mw = parse(text);
+          app.value = {
+            isDark: false,
+            colorMap: useColors(mw).value,
+          };
+          markwhen.value = {
+            rawText: text,
+            parsed: mw,
+            transformed: mw.events as Sourced<EventGroup>,
+          };
+          showEditButton.value = false;
+          showCopyLinkButton.value = true;
+        }
+      } catch (error) {
+        console.debug("Could not load sample data:", error);
+      }
     }
   });
 
-  const { postRequest } = useLpc({
+  const { postRequest, getConnectionStatus } = useLpc({
     appState(s) {
       showEditButton.value = false;
       showCopyLinkButton.value = true;
@@ -200,5 +222,7 @@ export const useMarkwhenStore = defineStore("markwhen", () => {
     timelineLink,
     editorLink,
     embedLink,
+
+    getConnectionStatus,
   };
 });
