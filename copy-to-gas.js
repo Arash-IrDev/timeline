@@ -43,10 +43,8 @@ function copyBundleFiles() {
 <script type="application/json" id="bundle-text">
   /* paste the FULL JS bundle here, exactly as built (IIFE, ES2017) */
   /* no HTML comments outside this tag */
-  (function(){ /* whole GAS js bundle will be placed here*/
 `;
     const jsFooter = `
-  try { window.__bundle_ran__ = true; } catch(e){} })();
 </script>`;
     // Write header + raw JS bundle + footer without altering bundle content
     fs.writeFileSync(jsDest, jsHeader + jsContent + jsFooter, 'utf8');

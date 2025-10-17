@@ -2,7 +2,16 @@ import { zoomer, type WheelGesture } from "../utilities/zoomer";
 import { MAX_SCALE, useTimelineStore } from "../../Timeline/timelineStore";
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 // @ts-ignore
-const Hammer = require("@squadette/hammerjs");
+// For GAS environment, we'll provide a mock Hammer object
+const Hammer = typeof require !== 'undefined' ? require("@squadette/hammerjs") : {
+  Manager: class {
+    constructor() {}
+    get() { return { set: () => {} }; }
+    on() {}
+  },
+  Pinch: class {},
+  Pan: class {}
+};
 import { useThrottleFn } from "@vueuse/core";
 import { useCanPanStore } from "./canPan";
 
