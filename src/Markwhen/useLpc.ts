@@ -1,12 +1,13 @@
 import type { EventPath } from "@/Timeline/paths";
 import type { DisplayScale } from "@/Timeline/utilities/dateTimeUtilities";
-import type {
-  DateFormat,
-  DateRangeIso,
-  DateTimeGranularity,
-  Eventy,
-  ParseResult,
-  Timeline,
+import {
+  parse,
+  type DateFormat,
+  type DateRangeIso,
+  type DateTimeGranularity,
+  type Eventy,
+  type ParseResult,
+  type Timeline,
 } from "@markwhen/parser";
 import { useColors } from "./useColors";
 import type { EventGroup } from "@markwhen/parser";
@@ -217,15 +218,26 @@ export const useLpc = (listeners?: MessageListeners) => {
     // @ts-ignore
     (window.__markwhen_initial_state as State | undefined);
   if (initialState && listeners && listeners.markwhenState) {
-    const state = initialState as MarkwhenState;
-    if (!state.parsed) {
-      return;
+    let state = initialState as MarkwhenState;
+    try {
+      if ((!state.parsed || !state.transformed) && state.rawText) {
+        const parsed = parse(state.rawText);
+        state = {
+          rawText: state.rawText,
+          parsed,
+          transformed: parsed.events as Sourced<EventGroup>,
+        };
+      }
+      if (state.parsed) {
+        const colorMap = useColors(state.parsed).value;
+        listeners.markwhenState(state);
+        listeners.appState?.({
+          colorMap,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to hydrate initial state", err);
     }
-    const colorMap = useColors(state.parsed).value;
-    listeners.markwhenState(initialState);
-    listeners.appState?.({
-      colorMap,
-    });
   }
 
   const getConnectionStatus = () => {
