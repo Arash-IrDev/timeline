@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Script to copy built files to GAS folder
- * This script copies the built JavaScript and CSS files to the GAS folder
- * for easy integration with Google Apps Script
+ * Copy built files to GAS folder
+ * Copies JavaScript and CSS bundles from dist/ to GAS/ folder
  */
 
 const fs = require('fs');
@@ -12,53 +11,8 @@ const path = require('path');
 const GAS_FOLDER = './GAS';
 const DIST_FOLDER = './dist';
 
-// Files to copy
-const filesToCopy = [
-  {
-    source: 'markwhen-timeline.iife.js',
-    destination: 'bundle_text.html',
-    wrapper: (content) => `<!-- File: bundle_text.html -->
-<script type="application/json" id="bundle-text">
-  /* paste the FULL JS bundle here, exactly as built (IIFE, ES2017) */
-  /* no HTML comments outside this tag */
-  ${content}
-</script>`
-  },
-  {
-    source: 'style.css',
-    destination: 'styles.html',
-    wrapper: (content) => `<!-- File: styles.html -->
-<style>
-/* whole css bundle will be placed here */
-${content}
-</style>`
-  }
-];
-
-function copyFile(sourceFile, destFile, wrapper) {
-  const sourcePath = path.join(DIST_FOLDER, sourceFile);
-  const destPath = path.join(GAS_FOLDER, destFile);
-  
-  try {
-    if (!fs.existsSync(sourcePath)) {
-      console.error(`Source file not found: ${sourcePath}`);
-      return false;
-    }
-    
-    const content = fs.readFileSync(sourcePath, 'utf8');
-    const wrappedContent = wrapper(content);
-    
-    fs.writeFileSync(destPath, wrappedContent, 'utf8');
-    console.log(`✅ Copied ${sourceFile} to ${destFile}`);
-    return true;
-  } catch (error) {
-    console.error(`❌ Error copying ${sourceFile}:`, error.message);
-    return false;
-  }
-}
-
-function main() {
-  console.log('🚀 Copying files to GAS folder...\n');
+function copyBundleFiles() {
+  console.log('🚀 Copying bundle files from dist/ to GAS/...\n');
   
   // Check if dist folder exists
   if (!fs.existsSync(DIST_FOLDER)) {
@@ -74,25 +28,67 @@ function main() {
   
   let successCount = 0;
   
-  filesToCopy.forEach(({ source, destination, wrapper }) => {
-    if (copyFile(source, destination, wrapper)) {
-      successCount++;
+  // Copy JavaScript bundle
+  try {
+    const jsSource = path.join(DIST_FOLDER, 'markwhen-timeline.iife.js');
+    const jsDest = path.join(GAS_FOLDER, 'bundle_text.html');
+    
+    if (!fs.existsSync(jsSource)) {
+      console.error('❌ JavaScript bundle not found:', jsSource);
+      return false;
     }
-  });
+    
+    const jsContent = fs.readFileSync(jsSource, 'utf8');
+    const jsWrapped = `<!-- File: bundle_text.html -->
+<script type="application/json" id="bundle-text">
+  /* paste the FULL JS bundle here, exactly as built (IIFE, ES2017) */
+  /* no HTML comments outside this tag */
+  ${jsContent}
+</script>`;
+    
+    fs.writeFileSync(jsDest, jsWrapped, 'utf8');
+    console.log('✅ Copied markwhen-timeline.iife.js to bundle_text.html');
+    successCount++;
+  } catch (error) {
+    console.error('❌ Error copying JavaScript bundle:', error.message);
+  }
   
-  console.log(`\n📊 Summary: ${successCount}/${filesToCopy.length} files copied successfully`);
+  // Copy CSS bundle
+  try {
+    const cssSource = path.join(DIST_FOLDER, 'style.css');
+    const cssDest = path.join(GAS_FOLDER, 'styles.html');
+    
+    if (!fs.existsSync(cssSource)) {
+      console.error('❌ CSS bundle not found:', cssSource);
+      return false;
+    }
+    
+    const cssContent = fs.readFileSync(cssSource, 'utf8');
+    const cssWrapped = `<!-- File: styles.html -->
+<style>
+/* whole css bundle will be placed here */
+${cssContent}
+</style>`;
+    
+    fs.writeFileSync(cssDest, cssWrapped, 'utf8');
+    console.log('✅ Copied style.css to styles.html');
+    successCount++;
+  } catch (error) {
+    console.error('❌ Error copying CSS bundle:', error.message);
+  }
   
-  if (successCount === filesToCopy.length) {
-    console.log('🎉 All files copied successfully!');
+  return successCount === 2;
+}
+
+function main() {
+  if (copyBundleFiles()) {
+    console.log('\n🎉 Bundle files updated successfully!');
     console.log('\n📝 Next steps:');
-    console.log('1. Copy the contents of GAS/Code.gs to your Google Apps Script project');
-    console.log('2. Copy the contents of GAS/SheetData.gs to your Google Apps Script project');
-    console.log('3. Copy the contents of GAS/index.html to your Google Apps Script project');
-    console.log('4. Copy the contents of GAS/bundle_text.html to your Google Apps Script project');
-    console.log('5. Copy the contents of GAS/styles.html to your Google Apps Script project');
-    console.log('6. Run the showTimeline() function in your Google Apps Script project');
+    console.log('1. Copy the contents of GAS/bundle_text.html to your Google Apps Script project');
+    console.log('2. Copy the contents of GAS/styles.html to your Google Apps Script project');
+    console.log('3. Test your timeline in Google Apps Script');
   } else {
-    console.log('⚠️  Some files failed to copy. Please check the errors above.');
+    console.log('❌ Failed to copy bundle files.');
     process.exit(1);
   }
 }

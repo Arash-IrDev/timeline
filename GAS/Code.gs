@@ -220,6 +220,9 @@ function createTimelineHTML(parsedData) {
     </html>
   `);
   
+  // Set the parsedData variable for the template
+  htmlTemplate.parsedData = parsedData;
+  
   return htmlTemplate.evaluate();
 }
 
