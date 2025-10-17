@@ -181,6 +181,19 @@
               if (!('queueMicrotask' in window)) window.queueMicrotask = (cb) => Promise.resolve().then(cb);
               if (!('requestAnimationFrame' in window)) window.requestAnimationFrame = (cb) => setTimeout(cb, 16);
               if (!('cancelAnimationFrame' in window)) window.cancelAnimationFrame = (id) => clearTimeout(id);
+              if (!('requestIdleCallback' in window)) window.requestIdleCallback = (cb) => setTimeout(() => cb({ didTimeout:false, timeRemaining: () => 1 }), 50);
+              if (!('cancelIdleCallback' in window)) window.cancelIdleCallback = (id) => clearTimeout(id);
+              if (!('performance' in window)) window.performance = { now: () => Date.now() };
+              if (!('structuredClone' in window)) window.structuredClone = (obj) => JSON.parse(JSON.stringify(obj));
+              if (!('ResizeObserver' in window)) window.ResizeObserver = function(){ this.observe=()=>{}; this.unobserve=()=>{}; this.disconnect=()=>{}; };
+              if (!('IntersectionObserver' in window)) window.IntersectionObserver = function(){ this.observe=()=>{}; this.unobserve=()=>{}; this.disconnect=()=>{}; };
+              if (!('MutationObserver' in window)) window.MutationObserver = function(){ this.observe=()=>{}; this.disconnect=()=>{}; };
+              if (!('matchMedia' in window)) {
+                window.matchMedia = function(){
+                  return { matches:false, media:'', onchange:null, addListener:()=>{}, removeListener:()=>{}, addEventListener:()=>{}, removeEventListener:()=>{}, dispatchEvent:()=>false };
+                };
+              }
+              if (!('CSS' in window)) window.CSS = { supports: () => false };
               if (!('crypto' in window) || !window.crypto.getRandomValues) {
                 window.crypto = window.crypto || {};
                 window.crypto.getRandomValues = function(arr){
