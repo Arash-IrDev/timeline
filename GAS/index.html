@@ -21,21 +21,9 @@
 
   <script>
     // ------------------------------------------------------------
-    // 1) Hard-coded sample Markwhen text (force this path)
+    // 1) Get real data from Google Apps Script
     // ------------------------------------------------------------
-    const SAMPLE_TEXT = `# Project Timeline (Sample)
-
-2024-01-15: Project Kickoff
-2024-02-10: First Milestone
-2024-03-05: Design Review
-2024-04-20 ~ 2024-05-14: Development Phase
-2024-05-15 ~ 2024-06-14: Testing Phase
-2024-06-30: Project Completion
-
-2025-01-01: New Year Planning
-2025-03-20: Spring Checkpoint
-2025-06-21: Midyear Review
-`;
+    let REAL_DATA = '';
 
     // Some bundles access process.env
     window.process = { env: { NODE_ENV: 'production' } };
@@ -64,14 +52,9 @@
     };
 
     // ------------------------------------------------------------
-    // 2) Non-null initial state to avoid ".ranges" null crashes
+    // 2) Initialize window.raw (will be populated when data is fetched)
     // ------------------------------------------------------------
-    window.raw = SAMPLE_TEXT; // some builds read from window.raw
-    window.__markwhen_initial_state = {
-      rawText: SAMPLE_TEXT,
-      parsed: { ranges: [] },
-      transformed: { ranges: [] }
-    };
+    window.raw = REAL_DATA; // some builds read from window.raw
 
     // ------------------------------------------------------------
     // 3) Intercept fetches for sample text so no network is used
@@ -87,7 +70,7 @@
         // Known sample endpoints or any .mw the bundle might try
         if (url.endsWith('/sample.mw') || url.includes('meridiem.markwhen.com') || url.endsWith('.mw')) {
           dbg('fetch_intercept', url);
-          return new Response(SAMPLE_TEXT, {
+          return new Response(REAL_DATA, {
             status: 200,
             headers: { 'Content-Type': 'text/plain; charset=utf-8' }
           });
@@ -96,13 +79,45 @@
       };
     })();
 
-    // Log the sample being used (for visibility)
-    dbg('raw_text_ok', SAMPLE_TEXT.slice(0, 120));
+    // Log the real data being used (for visibility)
+    dbg('raw_text_ok', REAL_DATA.slice(0, 120));
 
     // ------------------------------------------------------------
-    // 4) Fetch bundle (Base64), robustly strip module syntax, then eval
+    // 4) Fetch real data from Google Apps Script first
     // ------------------------------------------------------------
-    (function bootBundle() {
+    (function fetchRealData() {
+      if (!(google && google.script && google.script.run)) {
+        dbg('data_fetch_fail', 'google.script.run not available');
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function (markwhenText) {
+          REAL_DATA = markwhenText || '';
+          dbg('data_fetch_ok', REAL_DATA.slice(0, 120));
+          
+          // Update the raw data for fetch intercept
+          window.raw = REAL_DATA;
+          
+          // Don't set __markwhen_initial_state yet - let the bundle parse it
+          // The bundle will read from window.raw or fetch /sample.mw
+          
+          // Now boot the bundle with real data available
+          bootBundle();
+        })
+        .withFailureHandler(function (err) {
+          dbg('data_fetch_fail', String(err));
+          // Fallback to empty data
+          REAL_DATA = '';
+          bootBundle();
+        })
+        .getMarkwhenRawText();
+    })();
+
+    // ------------------------------------------------------------
+    // 5) Fetch bundle (Base64), robustly strip module syntax, then eval
+    // ------------------------------------------------------------
+    function bootBundle() {
       if (!(google && google.script && google.script.run)) {
         dbg('bundle_fetch_fail', 'google.script.run not available');
         return;
@@ -228,7 +243,7 @@
           dbg('bundle_fetch_fail', String(err));
         })
         .getBundleBase64();
-    })();
+    }
   </script>
 </body>
 </html>
