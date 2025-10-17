@@ -91,17 +91,45 @@ function getMarkwhenRawText() {
 
 /** Returns the JS bundle (stored inside bundle_text.html) as Base64 */
 function getBundleBase64() {
-  var html = HtmlService.createHtmlOutputFromFile('bundle_text').getContent();
-  var m = html.match(/<script[^>]*id=["']bundle-text["'][^>]*>([\s\S]*?)<\/script>/i);
-  var js = m ? m[1] : '';
-  js = js.replace(/\/\/# sourceMappingURL=.*?(\r?\n|$)/, '');
-  return Utilities.base64Encode(js);
+  try {
+    var html = HtmlService.createHtmlOutputFromFile('bundle_text').getContent();
+    var m = html.match(/<script[^>]*id=["']bundle-text["'][^>]*>([\s\S]*?)<\/script>/i);
+    var js = m ? m[1] : '';
+    
+    // Clean up the JavaScript content
+    js = js.trim();
+    
+    // If no content found, return a simple fallback
+    if (!js || js.length < 100) {
+      logClient('getBundleBase64', 'No JavaScript content found in bundle_text.html');
+      return Utilities.base64Encode(`
+        console.log("No bundle content available");
+        window.__markwhen_initial_state = window.__markwhen_initial_state || {};
+        window.__markwhen_initial_state.initialized = false;
+      `);
+    }
+    
+    logClient('getBundleBase64', 'Bundle content length: ' + js.length);
+    return Utilities.base64Encode(js);
+  } catch (error) {
+    logClient('getBundleBase64', 'Error: ' + error.message);
+    return Utilities.base64Encode(`
+      console.log("Bundle loading error: ${error.message}");
+      window.__markwhen_initial_state = window.__markwhen_initial_state || {};
+      window.__markwhen_initial_state.initialized = false;
+    `);
+  }
 }
 
 /** Opens the sidebar with index.html */
 function openSidebar() {
-  var html = HtmlService.createHtmlOutputFromFile('index')
+  var template = HtmlService.createTemplateFromFile('index');
+  // Provided for template compatibility; index ignores it but templating requires a defined var
+  template.base64Data = '';
+  var html = template.evaluate()
     .setTitle('Project Timeline')
+    .setWidth(1600)
+    .setHeight(800)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .setSandboxMode(HtmlService.SandboxMode.IFRAME);
   SpreadsheetApp.getUi().showSidebar(html);
@@ -131,8 +159,8 @@ function showTimeline() {
     const htmlOutput = createTimelineHTML(parsedData);
     
     // Show the sidebar
-    htmlOutput.setWidth(800);
-    htmlOutput.setHeight(600);
+    htmlOutput.setWidth(1600);
+    htmlOutput.setHeight(800);
     SpreadsheetApp.getUi().showSidebar(htmlOutput);
     
   } catch (error) {
@@ -143,87 +171,10 @@ function showTimeline() {
 
 /** Creates the HTML output for the timeline */
 function createTimelineHTML(parsedData) {
-  const htmlTemplate = HtmlService.createTemplate(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Markwhen Timeline</title>
-      <base target="_top">
-      <style>
-        body { 
-          margin: 0; 
-          padding: 0; 
-          font-family: Arial, sans-serif; 
-          background: #f5f5f5;
-        }
-        #app { 
-          width: 100%; 
-          height: 100vh; 
-          background: white;
-        }
-        .status {
-          position: fixed;
-          top: 10px;
-          left: 10px;
-          background: rgba(0,0,0,0.8);
-          color: white;
-          padding: 10px;
-          border-radius: 5px;
-          z-index: 1000;
-          font-size: 12px;
-        }
-        .error {
-          background: rgba(255,0,0,0.8);
-        }
-        .success {
-          background: rgba(0,255,0,0.8);
-        }
-      </style>
-      <?!= include('styles.html'); ?>
-    </head>
-    <body>
-      <div class="status" id="status">Loading Timeline...</div>
-      <div id="app"></div>
-      
-      <script>
-        // Set initial state with parsed data
-        window.__markwhen_initial_state = {
-          initialized: false,
-          data: <?= JSON.stringify(parsedData) ?>
-        };
-        
-        console.log('Initial state set:', window.__markwhen_initial_state);
-        
-        // Load and execute bundle
-        try {
-          <?!= include('bundle_text.html'); ?>
-          
-          // Check if bundle loaded successfully
-          setTimeout(() => {
-            const status = document.getElementById('status');
-            if (window.__markwhen_initial_state && window.__markwhen_initial_state.initialized) {
-              status.textContent = 'Timeline Loaded Successfully';
-              status.className = 'status success';
-            } else {
-              status.textContent = 'Timeline Failed to Load';
-              status.className = 'status error';
-            }
-          }, 2000);
-          
-        } catch (error) {
-          console.error('Bundle execution error:', error);
-          document.getElementById('status').textContent = 'Error: ' + error.message;
-          document.getElementById('status').className = 'status error';
-        }
-      </script>
-    </body>
-    </html>
-  `);
-  
-  // Set the parsedData variable for the template
-  htmlTemplate.parsedData = parsedData;
-  
-  return htmlTemplate.evaluate();
+  var template = HtmlService.createTemplateFromFile('index');
+  // Provide base64-encoded parsed data for compatibility if the template needs it
+  template.base64Data = Utilities.base64Encode(JSON.stringify(parsedData));
+  return template.evaluate();
 }
 
 /** Parses markwhen text into the required data structure */
@@ -295,27 +246,43 @@ function parseMarkwhenText(rawText) {
 
 /** Creates a date range from event text */
 function createDateRange(eventText) {
-  // Simple date parsing - in real implementation, use proper parser
-  const now = new Date();
-  const year = now.getFullYear();
-  
-  // Try to extract dates from the text
-  const dateMatch = eventText.match(/(\d{4}-\d{2}-\d{2})/);
-  if (dateMatch) {
-    const dateStr = dateMatch[1];
-    const date = new Date(dateStr);
+  try {
+    // Try to extract date range from the text (format: YYYY-MM-DD ~ YYYY-MM-DD)
+    const rangeMatch = eventText.match(/(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})/);
+    if (rangeMatch) {
+      const startDate = new Date(rangeMatch[1]);
+      const endDate = new Date(rangeMatch[2]);
+      return {
+        fromDateTime: startDate.toISOString(),
+        toDateTime: endDate.toISOString()
+      };
+    }
+    
+    // Try to extract single date from the text (format: YYYY-MM-DD)
+    const dateMatch = eventText.match(/(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) {
+      const dateStr = dateMatch[1];
+      const date = new Date(dateStr);
+      return {
+        fromDateTime: date.toISOString(),
+        toDateTime: date.toISOString()
+      };
+    }
+    
+    // Default to current date if no date found
+    const defaultDate = new Date();
     return {
-      fromDateTime: date.toISOString(),
-      toDateTime: date.toISOString()
+      fromDateTime: defaultDate.toISOString(),
+      toDateTime: defaultDate.toISOString()
+    };
+  } catch (error) {
+    logClient('createDateRange', 'Error: ' + error.message);
+    const defaultDate = new Date();
+    return {
+      fromDateTime: defaultDate.toISOString(),
+      toDateTime: defaultDate.toISOString()
     };
   }
-  
-  // Default to current date if no date found
-  const defaultDate = new Date(year, 0, 1);
-  return {
-    fromDateTime: defaultDate.toISOString(),
-    toDateTime: defaultDate.toISOString()
-  };
 }
 
 /** Gets sample markwhen text for testing */

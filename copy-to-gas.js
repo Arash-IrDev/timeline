@@ -12,7 +12,7 @@ const GAS_FOLDER = './GAS';
 const DIST_FOLDER = './dist';
 
 function copyBundleFiles() {
-  console.log('🚀 Copying bundle files from dist/ to GAS/...\n');
+  console.log('🚀 Building GAS files with embedded bundles...\n');
   
   // Check if dist folder exists
   if (!fs.existsSync(DIST_FOLDER)) {
@@ -28,7 +28,7 @@ function copyBundleFiles() {
   
   let successCount = 0;
   
-  // Copy JavaScript bundle
+  // Build JavaScript bundle file with exact template structure
   try {
     const jsSource = path.join(DIST_FOLDER, 'markwhen-timeline.iife.js');
     const jsDest = path.join(GAS_FOLDER, 'bundle_text.html');
@@ -39,21 +39,24 @@ function copyBundleFiles() {
     }
     
     const jsContent = fs.readFileSync(jsSource, 'utf8');
-    const jsWrapped = `<!-- File: bundle_text.html -->
+    const jsHeader = `<!-- File: bundle_text.html -->
 <script type="application/json" id="bundle-text">
   /* paste the FULL JS bundle here, exactly as built (IIFE, ES2017) */
   /* no HTML comments outside this tag */
-  ${jsContent}
+  (function(){ /* whole GAS js bundle will be placed here*/
+`;
+    const jsFooter = `
+  try { window.__bundle_ran__ = true; } catch(e){} })();
 </script>`;
-    
-    fs.writeFileSync(jsDest, jsWrapped, 'utf8');
-    console.log('✅ Copied markwhen-timeline.iife.js to bundle_text.html');
+    // Write header + raw JS bundle + footer without altering bundle content
+    fs.writeFileSync(jsDest, jsHeader + jsContent + jsFooter, 'utf8');
+    console.log('✅ Wrote bundle_text.html with embedded JS bundle');
     successCount++;
   } catch (error) {
-    console.error('❌ Error copying JavaScript bundle:', error.message);
+    console.error('❌ Error writing JavaScript bundle:', error.message);
   }
   
-  // Copy CSS bundle
+  // Build CSS bundle file with exact template structure
   try {
     const cssSource = path.join(DIST_FOLDER, 'style.css');
     const cssDest = path.join(GAS_FOLDER, 'styles.html');
@@ -64,17 +67,13 @@ function copyBundleFiles() {
     }
     
     const cssContent = fs.readFileSync(cssSource, 'utf8');
-    const cssWrapped = `<!-- File: styles.html -->
-<style>
-/* whole css bundle will be placed here */
-${cssContent}
-</style>`;
-    
-    fs.writeFileSync(cssDest, cssWrapped, 'utf8');
-    console.log('✅ Copied style.css to styles.html');
+    const cssHeader = '<!-- File: styles.html -->\n<style>\n/* whole css bundle will be placed here */\n';
+    const cssFooter = '\n</style>';
+    fs.writeFileSync(cssDest, cssHeader + cssContent + cssFooter, 'utf8');
+    console.log('✅ Wrote styles.html with embedded CSS');
     successCount++;
   } catch (error) {
-    console.error('❌ Error copying CSS bundle:', error.message);
+    console.error('❌ Error writing CSS bundle:', error.message);
   }
   
   return successCount === 2;
