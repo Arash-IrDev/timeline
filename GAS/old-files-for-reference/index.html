@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Project Timeline</title>
+
+  <!-- Kept for compatibility; we ignore it because we force SAMPLE_TEXT -->
+  <meta id="mw-data" data-b64="<?!= base64Data ?>" />
+
+  <?!= include('styles'); ?>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #app { width: 100%; height: 100%; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    // ------------------------------------------------------------
+    // 1) Hard-coded sample Markwhen text (force this path)
+    // ------------------------------------------------------------
+    const SAMPLE_TEXT = `# Project Timeline (Sample)
+
+2024-01-15: Project Kickoff
+2024-02-10: First Milestone
+2024-03-05: Design Review
+2024-04-20 ~ 2024-05-14: Development Phase
+2024-05-15 ~ 2024-06-14: Testing Phase
+2024-06-30: Project Completion
+
+2025-01-01: New Year Planning
+2025-03-20: Spring Checkpoint
+2025-06-21: Midyear Review
+`;
+
+    // Some bundles access process.env
+    window.process = { env: { NODE_ENV: 'production' } };
+
+    // Minimal logger (also posts to Apps Script if available)
+    function dbg(stage, payload) {
+      try {
+        console.log(`[Timeline][${stage}]`, payload);
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          const msg = (typeof payload === 'string') ? payload : JSON.stringify(payload);
+          google.script.run
+            .withFailureHandler(function(){})
+            .logClient(stage, String(msg).slice(0, 5000));
+        }
+      } catch (_) {}
+    }
+
+    window.onerror = function (message, source, line, column, error) {
+      dbg('window.onerror', {
+        message: String(message),
+        source: String(source || ''),
+        line: line || 0,
+        column: column || 0,
+        stack: error && error.stack ? String(error.stack).slice(0, 4000) : ''
+      });
+    };
+
+    // ------------------------------------------------------------
+    // 2) Non-null initial state to avoid ".ranges" null crashes
+    // ------------------------------------------------------------
+    window.raw = SAMPLE_TEXT; // some builds read from window.raw
+    window.__markwhen_initial_state = {
+      rawText: SAMPLE_TEXT,
+      parsed: { ranges: [] },
+      transformed: { ranges: [] }
+    };
+
+    // ------------------------------------------------------------
+    // 3) Intercept fetches for sample text so no network is used
+    // ------------------------------------------------------------
+    (function interceptFetchForSample() {
+      if (!('fetch' in window)) return;
+      const realFetch = window.fetch.bind(window);
+
+      window.fetch = async function(input, init) {
+        let url = '';
+        try { url = (typeof input === 'string') ? input : (input && input.url) || ''; } catch (_){}
+
+        // Known sample endpoints or any .mw the bundle might try
+        if (url.endsWith('/sample.mw') || url.includes('meridiem.markwhen.com') || url.endsWith('.mw')) {
+          dbg('fetch_intercept', url);
+          return new Response(SAMPLE_TEXT, {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+          });
+        }
+        return realFetch(input, init);
+      };
+    })();
+
+    // Log the sample being used (for visibility)
+    dbg('raw_text_ok', SAMPLE_TEXT.slice(0, 120));
+
+    // ------------------------------------------------------------
+    // 4) Fetch bundle (Base64), robustly strip module syntax, then eval
+    // ------------------------------------------------------------
+    (function bootBundle() {
+      if (!(google && google.script && google.script.run)) {
+        dbg('bundle_fetch_fail', 'google.script.run not available');
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function (b64js) {
+          try {
+            // Decode Base64
+            let js = atob(b64js || '');
+            dbg('bundle_fetch_ok', { length: js.length, head: js.slice(0, 120) });
+
+            // --- Fix known broken regexes from build, safely ---
+            const litRegex  = /\/\^\?\\s\*\//g;                     // /^\?\s*/ → /^\s*/
+            const ctorRegex = /new RegExp\(['"]\^\?\\s\*['"]\)/g;   // new RegExp('^?\s*') → new RegExp('^\s*')
+            const litCount  = (js.match(litRegex)  || []).length;
+            const ctorCount = (js.match(ctorRegex) || []).length;
+            js = js.replace(litRegex, '/^\\s*/')
+                   .replace(ctorRegex, "new RegExp('^\\s*')");
+            dbg('bundle_patch_counts', { literal: litCount, ctor: ctorCount });
+
+            // --- Strip ES module syntax thoroughly ---
+            // Remove all forms of "import ..." (including multiline/bare)
+            js = js.replace(/^\s*import[\s\S]*?;[ \t]*$/gm, '');
+
+            // Transform "export default function/class Name ..." → keep decl + expose on window
+            js = js.replace(/\bexport\s+default\s+(async\s+)?function\s+([A-Za-z$_]\w*)/g,
+                            '$1function $2');
+
+            js = js.replace(/\bexport\s+default\s+class\s+([A-Za-z$_]\w*)/g,
+                            'class $1');
+
+            // Capture anonymous export default expressions:
+            // "export default (function(){...})" or "export default something"
+            js = js.replace(/\bexport\s+default\s+([^\n;]+)/g,
+                            'window.__bundle_default__ = ($1)');
+
+            // Turn "export const/let/var" into plain declarations
+            js = js.replace(/\bexport\s+(const|let|var)\s+/g, '$1 ');
+
+            // Turn "export function" into "function"
+            js = js.replace(/\bexport\s+(async\s+)?function\s+/g, '$1function ');
+
+            // Turn "export class" into "class"
+            js = js.replace(/\bexport\s+class\s+/g, 'class ');
+
+            // Remove named export blocks: export { A, B as C };
+            js = js.replace(/\bexport\s*\{[^}]*\};?/g, '');
+
+            // Remove leftover ESM-only "export * from" re-exports
+            js = js.replace(/\bexport\s*\*\s*from\s*['"][^'"]+['"];?/g, '');
+
+            // If we removed "export default ..." without assigning,
+            // try to detect a top-level name and export it.
+            // (Best-effort: if there is exactly one top-level function/class named App/Init)
+            if (!/window\.__bundle_default__\s*=/.test(js)) {
+              const m = js.match(/\b(class|function)\s+([A-Za-z$_]\w*)/);
+              if (m && m[2]) {
+                js += `\n;try{window.__bundle_default__=${m[2]};}catch(_){}`; // best effort
+              }
+            }
+
+            // Quick syntax sanity check before executing
+            try { new Function(js); } catch (syntaxErr) {
+              dbg('bundle_syntax_error_preview', js.slice(0, 500));
+              throw syntaxErr;
+            }
+
+            // Execute in page scope
+            (new Function(js))();
+            dbg('bundle_exec_ok', true);
+
+            // If bundle exposed a default entry and it's callable, call it.
+            try {
+              if (typeof window.__bundle_default__ === 'function') {
+                // Many UIs accept an options object or just mount themselves
+                window.__bundle_default__({ target: '#app' });
+              }
+            } catch (e) {
+              dbg('bundle_default_invoke_fail', String(e && e.stack || e));
+            }
+
+          } catch (e) {
+            dbg('bundle_exec_fail', String(e && e.stack || e));
+          }
+        })
+        .withFailureHandler(function (err) {
+          dbg('bundle_fetch_fail', String(err));
+        })
+        .getBundleBase64();
+    })();
+  </script>
+</body>
+</html>
