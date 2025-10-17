@@ -33,24 +33,26 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: "es2017",
-      ...(isGasMode ? {
-        lib: {
-          entry: "src/main.ts",
-          name: "MarkwhenTimeline",
-          fileName: "markwhen-timeline",
-          formats: ["iife"]
-        },
-        rollupOptions: {
-          output: {
-            inlineDynamicImports: true,
-            manualChunks: undefined,
-            format: "iife",
-            name: "MarkwhenTimeline",
-            intro: "(function() {",
-            outro: "})();"
+      ...(isGasMode
+        ? {
+            lib: {
+              entry: "src/main.ts",
+              name: "MarkwhenTimeline",
+              fileName: "markwhen-timeline",
+              formats: ["iife"],
+            },
+            rollupOptions: {
+              output: {
+                inlineDynamicImports: true,
+                manualChunks: undefined,
+                format: "iife",
+                name: "MarkwhenTimeline",
+                intro: "(function() {",
+                outro: "})();",
+              },
+            },
           }
-        }
-      } : {}),
+        : {}),
       minify: "terser",
       terserOptions: {
         compress: {

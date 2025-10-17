@@ -2,9 +2,6 @@
 
 declare global {
   interface Window {
-    __markwhen_initial_state: {
-      initialized: boolean;
-      data: any;
-    };
+    __markwhen_initial_state?: any;
   }
 }

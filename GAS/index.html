@@ -52,14 +52,10 @@
     };
 
     // ------------------------------------------------------------
-    // 2) Initialize window.raw and initial state (will be populated when data is fetched)
+    // 2) Initialize window.raw (will be populated when data is fetched)
     // ------------------------------------------------------------
     window.raw = REAL_DATA; // some builds read from window.raw
-    window.__markwhen_initial_state = {
-      rawText: REAL_DATA,
-      parsed: { ranges: [] },
-      transformed: { ranges: [] }
-    };
+    window.__markwhen_initial_state = window.__markwhen_initial_state || {};
 
     // ------------------------------------------------------------
     // 3) Intercept fetches for sample text so no network is used
@@ -103,12 +99,8 @@
           
           // Update the raw data for fetch intercept
           window.raw = REAL_DATA;
-          
-          // Update the initial state with real data
           window.__markwhen_initial_state = {
-            rawText: REAL_DATA,
-            parsed: { ranges: [] },
-            transformed: { ranges: [] }
+            rawText: REAL_DATA
           };
           
           // Now boot the bundle with real data available

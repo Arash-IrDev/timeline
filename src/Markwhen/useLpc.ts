@@ -218,6 +218,9 @@ export const useLpc = (listeners?: MessageListeners) => {
     (window.__markwhen_initial_state as State | undefined);
   if (initialState && listeners && listeners.markwhenState) {
     const state = initialState as MarkwhenState;
+    if (!state.parsed) {
+      return;
+    }
     const colorMap = useColors(state.parsed).value;
     listeners.markwhenState(initialState);
     listeners.appState?.({

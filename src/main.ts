@@ -5,12 +5,6 @@ import "./assets/main.css";
 import router from "@/router/router"
 
 // Initialize window state for Google Apps Script compatibility
-if (typeof window !== 'undefined' && !window.__markwhen_initial_state) {
-  window.__markwhen_initial_state = {
-    initialized: false,
-    data: null
-  };
-}
 
 const app = createApp(App);
 const pinia = createPinia();
@@ -22,6 +16,7 @@ app.mount("#app");
 
 // Mark as initialized for Google Apps Script
 if (typeof window !== 'undefined') {
+  window.__markwhen_initial_state = window.__markwhen_initial_state || {};
   window.__markwhen_initial_state.initialized = true;
 }
 
