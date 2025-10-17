@@ -8,6 +8,59 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+const TAG_COLORS = Object.freeze({
+  '#Core': '#4d79ff',
+  '#UI': '#4db8ff',
+  '#Data': '#ff944d',
+  '#Analysis': '#ff4d4d',
+  '#Infrastructure': '#4dff88',
+  '#Documentation': '#ffa500',
+  '#ML': '#ff80ff',
+  '#High': '#ff4d4d',
+  '#Medium': '#ffa64d',
+  '#Low': '#ffee80',
+  '#Completed': '#bababa'
+});
+
+function toTag(value) {
+  if (value === null || value === undefined) return '';
+  var tag = String(value).trim();
+  if (!tag) return '';
+  if (tag.charAt(0) !== '#') {
+    tag = '#' + tag.replace(/^#+/, '');
+  }
+  return tag;
+}
+
+function parseSheetDate(value) {
+  if (!value && value !== 0) return null;
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return value;
+  }
+  if (typeof value === 'number') {
+    var dateFromNumber = new Date(value);
+    return isNaN(dateFromNumber.getTime()) ? null : dateFromNumber;
+  }
+  if (typeof value === 'string') {
+    var trimmed = value.trim();
+    if (!trimmed) return null;
+    var parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      return parsed;
+    }
+    var parts = trimmed.split('-');
+    if (parts.length === 3) {
+      var year = parseInt(parts[0], 10);
+      var month = parseInt(parts[1], 10);
+      var day = parseInt(parts[2], 10);
+      if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+        return new Date(year, month - 1, day);
+      }
+    }
+  }
+  return null;
+}
+
 /** Receive client logs and write to Apps Script Logger */
 function logClient(stage, message) {
   try {
@@ -21,65 +74,119 @@ function logClient(stage, message) {
 function getMarkwhenRawText() {
   try {
     const sheet = SpreadsheetApp.getActiveSheet();
-    const lastRow = sheet.getLastRow();
-    
-    // If no data, return empty string with header
-    if (lastRow < 2) {
-      return '# Project Timeline\n\nNo events yet. Add data to the spreadsheet to see your timeline.';
+    if (!sheet) {
+      throw new Error('Active sheet not found.');
     }
-    
-    // Read data from sheet
-    const rng = sheet.getRange(2, 1, lastRow - 1, 3);
-    const vals = rng.getValues();
-    const tz = Session.getScriptTimeZone();
-    
-    // Convert sheet data to markwhen format
-    const lines = vals.map(r => {
-      const task = (r[0] || '').toString().trim();
-      const startDate = r[1];
-      const endDate = r[2];
-      
-      if (!task || !startDate) return null;
-      
-      const s = new Date(startDate);
-      if (isNaN(s.getTime())) return null;
-      
-      const sStr = Utilities.formatDate(s, tz, 'yyyy-MM-dd');
-      
-      if (endDate && !isNaN(new Date(endDate).getTime())) {
-        const e = new Date(endDate);
-        const eStr = Utilities.formatDate(e, tz, 'yyyy-MM-dd');
-        return `${sStr} ~ ${eStr}: ${task}`;
+
+    var headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
+    var headers = headerRange.getValues()[0];
+    var expectedHeaders = [
+      'Section',
+      'Category Tag',
+      'Section Color',
+      'Start Date',
+      'End Date',
+      'Task Title',
+      'Completed',
+      'Priority Tag',
+      'Priority Color',
+      'Status Tag',
+      'Status Color',
+      'Emoji'
+    ];
+
+    if (!headers || headers.length < expectedHeaders.length || expectedHeaders.some(function (h, idx) { return headers[idx] !== h; })) {
+      return '# Project Timeline\n\nPlease run "Setup Sample Data" to populate the sheet with the required headers and data.';
+    }
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      return '# Project Timeline\n\nNo events yet. Use the "Setup Sample Data" menu to get started.';
+    }
+
+    var dataRange = sheet.getRange(2, 1, lastRow - 1, expectedHeaders.length);
+    var rows = dataRange.getValues();
+    var tz = Session.getScriptTimeZone();
+
+    var sectionsMap = {};
+
+    rows.forEach(function (row) {
+      var sectionName = row[0];
+      var categoryTag = toTag(row[1]);
+      var startDate = parseSheetDate(row[3]);
+      var endDate = parseSheetDate(row[4]);
+      var title = row[5];
+      var completed = String(row[6] || '').toLowerCase() === 'true';
+      var priorityTag = toTag(row[7]);
+      var statusTag = toTag(row[9]);
+      var emoji = row[11];
+
+      if (!sectionName || !startDate || !title) {
+        return;
       }
-      
-      return `${sStr}: ${task}`;
-    }).filter(Boolean);
-    
-    // Group by year
-    const sections = {};
-    lines.forEach(line => {
-      const dateMatch = line.match(/(\d{4})-\d{2}-\d{2}/);
-      if (dateMatch) {
-        const year = parseInt(dateMatch[1]);
-        if (!sections[year]) {
-          sections[year] = [];
-        }
-        sections[year].push(line);
+
+      var startStr = Utilities.formatDate(startDate, tz, 'yyyy-MM-dd');
+      var hasEnd = endDate && !isNaN(endDate.getTime());
+      var endStr = hasEnd ? Utilities.formatDate(endDate, tz, 'yyyy-MM-dd') : '';
+      var dateSegment = hasEnd ? startStr + '/' + endStr : startStr;
+
+      var statusPrefix = completed ? '[x] ' : '[ ] ';
+      var tags = [];
+      if (categoryTag) tags.push(categoryTag);
+      if (priorityTag) tags.push(priorityTag);
+      if (statusTag) tags.push(statusTag);
+
+      var emojiPart = emoji ? ' ' + emoji : '';
+
+      var line = dateSegment + ': ' + statusPrefix + title + emojiPart;
+      if (tags.length) {
+        line += ' ' + tags.join(' ');
       }
+
+      var sectionKey = sectionName;
+      if (!sectionsMap[sectionKey]) {
+        sectionsMap[sectionKey] = {
+          name: sectionName,
+          categoryTag: categoryTag,
+          color: String(row[2] || '').trim(),
+          items: []
+        };
+      }
+      sectionsMap[sectionKey].items.push(line);
     });
-    
-    // Build the markwhen format text
-    let result = '# Project Timeline\n\n';
-    Object.keys(sections).sort((a, b) => parseInt(a) - parseInt(b)).forEach(year => {
-      result += `## ${year}\n\n`;
-      sections[year].forEach(line => {
-        result += `${line}\n`;
+
+    var sectionNames = Object.keys(sectionsMap);
+    if (!sectionNames.length) {
+      return '# Project Timeline\n\nNo valid rows found. Please ensure start dates and titles are provided.';
+    }
+
+    sectionNames.sort(function (a, b) {
+      var firstA = sectionsMap[a].items[0];
+      var firstB = sectionsMap[b].items[0];
+      var dateA = firstA ? firstA.substring(0, 10) : '9999-12-31';
+      var dateB = firstB ? firstB.substring(0, 10) : '9999-12-31';
+      return dateA.localeCompare(dateB);
+    });
+
+    var output = ['# Project Timeline', ''];
+
+    sectionNames.forEach(function (name) {
+      var section = sectionsMap[name];
+      var headerTokens = ['section ' + section.name];
+      if (section.categoryTag) {
+        headerTokens.push(section.categoryTag);
+      }
+      if (section.color) {
+        headerTokens.push('color:' + section.color);
+      }
+      output.push(headerTokens.join(' '));
+      section.items.forEach(function (item) {
+        output.push(item);
       });
-      result += '\n';
+      output.push('endSection', '');
     });
-    
-    return result;
-    
+
+    return output.join('\n');
   } catch (error) {
     logClient('getMarkwhenRawText', 'Error: ' + error.message);
     return '# Project Timeline\n\nError loading timeline data. Please check your spreadsheet format.';
@@ -148,34 +255,77 @@ function setupSampleData() {
   try {
     const sheet = SpreadsheetApp.getActiveSheet();
     
-    // Clear existing data
     sheet.clear();
-    
-    // Add headers
-    sheet.getRange(1, 1, 1, 3).setValues([['Task', 'Start Date', 'End Date']]);
-    
-    // Add sample data
-    const sampleData = [
-      ['Project Kickoff', '2024-01-15', ''],
-      ['First Milestone', '2024-02-10', ''],
-      ['Design Review', '2024-03-05', ''],
-      ['Development Phase', '2024-04-20', '2024-05-14'],
-      ['Testing Phase', '2024-05-15', '2024-06-14'],
-      ['Project Completion', '2024-06-30', ''],
-      ['New Year Planning', '2025-01-01', ''],
-      ['Valentine\'s Day', '2025-02-14', ''],
-      ['Spring Equinox', '2025-03-20', ''],
-      ['Summer Solstice', '2025-06-21', ''],
-      ['Autumn Equinox', '2025-09-22', ''],
-      ['Winter Solstice', '2025-12-21', '']
+
+    var headers = [
+      ['Section', 'Category Tag', 'Section Color', 'Start Date', 'End Date', 'Task Title', 'Completed', 'Priority Tag', 'Priority Color', 'Status Tag', 'Status Color', 'Emoji']
     ];
-    
-    sheet.getRange(2, 1, sampleData.length, 3).setValues(sampleData);
-    
-    // Format the sheet
-    sheet.getRange(1, 1, 1, 3).setFontWeight('bold');
-    sheet.autoResizeColumns(1, 3);
-    
+    sheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
+
+    var sampleRows = [
+      ['UI & Login', '#UI', TAG_COLORS['#UI'], '2025-10-10', '2025-10-11', 'Add logo to login screen', true, '#Low', TAG_COLORS['#Low'], '#Completed', TAG_COLORS['#Completed'], '🖼'],
+      ['UI & Login', '#UI', TAG_COLORS['#UI'], '2025-10-12', '2025-10-13', 'Redesign login flow and messages', true, '#Medium', TAG_COLORS['#Medium'], '#Completed', TAG_COLORS['#Completed'], '💻'],
+      ['UI & Login', '#UI', TAG_COLORS['#UI'], '2025-10-14', '2025-10-15', 'Add favicon and Open Graph tags', false, '#High', TAG_COLORS['#High'], '', '', '🌐'],
+
+      ['Data Handling', '#Data', TAG_COLORS['#Data'], '2025-10-10', '2025-10-11', 'Optimize CSV loading and date parsing', true, '#High', TAG_COLORS['#High'], '#Completed', TAG_COLORS['#Completed'], '📊'],
+      ['Data Handling', '#Data', TAG_COLORS['#Data'], '2025-10-12', '2025-10-13', 'Add progress bar for file uploads', true, '#Low', TAG_COLORS['#Low'], '#Completed', TAG_COLORS['#Completed'], '📈'],
+      ['Data Handling', '#Data', TAG_COLORS['#Data'], '2025-10-14', '2025-10-15', 'Add delete option for files and datasets', false, '#Medium', TAG_COLORS['#Medium'], '', '', '🗑'],
+
+      ['Preprocess Module', '#Core', TAG_COLORS['#Core'], '2025-10-11', '2025-10-12', 'Add chart title via JSON', true, '#Medium', TAG_COLORS['#Medium'], '#Completed', TAG_COLORS['#Completed'], '📝'],
+      ['Preprocess Module', '#Core', TAG_COLORS['#Core'], '2025-10-13', '2025-10-14', 'Responsive chart fixes', true, '#Medium', TAG_COLORS['#Medium'], '#Completed', TAG_COLORS['#Completed'], '📱'],
+      ['Preprocess Module', '#Core', TAG_COLORS['#Core'], '2025-10-15', '2025-10-16', 'Add undo/save-to-database feature', false, '#High', TAG_COLORS['#High'], '', '', '💾'],
+      ['Preprocess Module', '#Core', TAG_COLORS['#Core'], '2025-10-17', '2025-10-18', 'Show preprocessing history', false, '#High', TAG_COLORS['#High'], '', '', '🔄'],
+
+      ['Analysis', '#Analysis', TAG_COLORS['#Analysis'], '2025-10-10', '2025-10-12', 'Add date range filters for charts', true, '#Medium', TAG_COLORS['#Medium'], '#Completed', TAG_COLORS['#Completed'], '⏰'],
+      ['Analysis', '#Analysis', TAG_COLORS['#Analysis'], '2025-10-13', '2025-10-14', 'Add correlation and trend charts', true, '#High', TAG_COLORS['#High'], '#Completed', TAG_COLORS['#Completed'], '📊'],
+      ['Analysis', '#Analysis', TAG_COLORS['#Analysis'], '2025-10-15', '2025-10-16', 'Sync parameters (MD, C, S) across views', false, '#High', TAG_COLORS['#High'], '', '', '🔄'],
+      ['Analysis', '#Analysis', TAG_COLORS['#Analysis'], '2025-10-17', '2025-10-18', 'Implement new correlation matrix', false, '#Medium', TAG_COLORS['#Medium'], '', '', '🔢'],
+
+      ['Infrastructure', '#Infrastructure', TAG_COLORS['#Infrastructure'], '2025-10-11', '2025-10-12', 'Add indexed JSON query system', true, '#High', TAG_COLORS['#High'], '#Completed', TAG_COLORS['#Completed'], '🔍'],
+      ['Infrastructure', '#Infrastructure', TAG_COLORS['#Infrastructure'], '2025-10-13', '2025-10-14', 'Optimize DB indexing and caching', true, '#High', TAG_COLORS['#High'], '#Completed', TAG_COLORS['#Completed'], '💾'],
+      ['Infrastructure', '#Infrastructure', TAG_COLORS['#Infrastructure'], '2025-10-15', '2025-10-16', 'Enable GPU for data analytics', false, '#Medium', TAG_COLORS['#Medium'], '', '', '⚡️'],
+      ['Infrastructure', '#Infrastructure', TAG_COLORS['#Infrastructure'], '2025-10-17', '2025-10-18', 'Add environment-specific logging', false, '#Medium', TAG_COLORS['#Medium'], '', '', '📝'],
+
+      ['ML Modeling', '#ML', TAG_COLORS['#ML'], '2025-10-12', '2025-10-13', 'Build parameter selection UI', false, '#High', TAG_COLORS['#High'], '', '', '🎯'],
+      ['ML Modeling', '#ML', TAG_COLORS['#ML'], '2025-10-14', '2025-10-15', 'Split data into train/test sets', false, '#High', TAG_COLORS['#High'], '', '', '📊'],
+      ['ML Modeling', '#ML', TAG_COLORS['#ML'], '2025-10-16', '2025-10-17', 'Display model performance metrics', false, '#Medium', TAG_COLORS['#Medium'], '', '', '📈'],
+      ['ML Modeling', '#ML', TAG_COLORS['#ML'], '2025-10-18', '2025-10-19', 'Save trained models (.pkl & JSON)', false, '#High', TAG_COLORS['#High'], '', '', '💾'],
+
+      ['Dashboard', '#UI', TAG_COLORS['#UI'], '2025-10-14', '2025-10-15', 'Create configuration & upload section', false, '#High', TAG_COLORS['#High'], '', '', '⚙️'],
+      ['Dashboard', '#UI', TAG_COLORS['#UI'], '2025-10-16', '2025-10-17', 'Filter data by target MD & C', false, '#High', TAG_COLORS['#High'], '', '', '🔍'],
+      ['Dashboard', '#UI', TAG_COLORS['#UI'], '2025-10-18', '2025-10-19', 'Show recommended parameter values', false, '#Medium', TAG_COLORS['#Medium'], '', '', '📊'],
+      ['Dashboard', '#UI', TAG_COLORS['#UI'], '2025-10-20', '2025-10-21', 'Final optimization & bug fixes', false, '#High', TAG_COLORS['#High'], '', '', '🐛'],
+
+      ['Documentation', '#Documentation', TAG_COLORS['#Documentation'], '2025-10-22', '2025-10-23', 'Write feature tree documentation', false, '#High', TAG_COLORS['#High'], '', '', '📑'],
+      ['Documentation', '#Documentation', TAG_COLORS['#Documentation'], '2025-10-24', '2025-10-25', 'Prepare presentation & deployment notes', false, '#High', TAG_COLORS['#High'], '', '', '📋']
+    ];
+
+    sheet.getRange(2, 1, sampleRows.length, headers[0].length).setValues(sampleRows);
+
+    sheet.getRange(1, 1, 1, headers[0].length)
+      .setFontWeight('bold')
+      .setBackground('#1f1f1f')
+      .setFontColor('#ffffff');
+
+    sheet.autoResizeColumns(1, headers[0].length);
+    sheet.setFrozenRows(1);
+
+    var descriptionRange = sheet.getRange(1, headers[0].length + 2, 1, 2);
+    descriptionRange.setValues([['Legend Tag', 'Color Hex']]);
+    descriptionRange.setFontWeight('bold');
+
+    var legendEntries = Object.keys(TAG_COLORS).map(function (tag) {
+      return [tag, TAG_COLORS[tag]];
+    });
+
+    sheet.getRange(2, headers[0].length + 2, legendEntries.length, 2).setValues(legendEntries);
+
+    legendEntries.forEach(function (entry, index) {
+      var rowIndex = index + 2;
+      var colorCell = sheet.getRange(rowIndex, headers[0].length + 3);
+      colorCell.setBackground(entry[1]);
+    });
+
     SpreadsheetApp.getUi().alert('Sample data added successfully!');
     
   } catch (error) {
