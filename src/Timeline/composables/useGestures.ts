@@ -2,7 +2,7 @@ import { zoomer, type WheelGesture } from "../utilities/zoomer";
 import { MAX_SCALE, useTimelineStore } from "../../Timeline/timelineStore";
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 // @ts-ignore
-import Hammer from "@squadette/hammerjs";
+import * as Hammer from "@squadette/hammerjs";
 import { useThrottleFn } from "@vueuse/core";
 import { useCanPanStore } from "./canPan";
 
