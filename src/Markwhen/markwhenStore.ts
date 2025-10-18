@@ -1,6 +1,6 @@
 import { equivalentPaths, type EventPath } from "@/Timeline/paths";
 import { defineStore } from "pinia";
-import { computed, ref, watchEffect } from "vue";
+import { computed, onScopeDispose, ref, watchEffect } from "vue";
 import {
   useLpc,
   type AppState,
@@ -63,6 +63,35 @@ export const useMarkwhenStore = defineStore("markwhen", () => {
   );
   const embedLink = computed(() => `<iframe src="${timelineLink.value}" />`);
 
+  const syncFromRawText = (text: string) => {
+    const mw = parse(text);
+    app.value = {
+      isDark: false,
+      colorMap: useColors(mw).value,
+    };
+    markwhen.value = {
+      rawText: text,
+      parsed: mw,
+      transformed: mw.events as Sourced<EventGroup>,
+    };
+  };
+
+  let timelineDataListener: ((event: CustomEvent<{ rawText: string }>) => void) | undefined;
+
+  if (typeof window !== "undefined") {
+    timelineDataListener = (event) => {
+      const rawText = event.detail?.rawText;
+      if (typeof rawText === "string") {
+        try {
+          syncFromRawText(rawText);
+        } catch (error) {
+          console.error("Failed to update timeline data", error);
+        }
+      }
+    };
+    window.addEventListener("timeline-data", timelineDataListener as EventListener);
+  }
+
   watchEffect(async () => {
     const { user, timeline } = route.params;
     if (user) {
@@ -70,23 +99,17 @@ export const useMarkwhenStore = defineStore("markwhen", () => {
         const url = timeline
           ? `https://meridiem.markwhen.com/${user}/${timeline}.mw`
           : `https://meridiem.markwhen.com/${user}.mw`;
-        const resp = await fetch(url).catch(() => {});
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const resp = await fetch(url, { signal: controller.signal }).catch(() => {});
+        clearTimeout(timeoutId);
         if (resp) {
           if (resp.redirected) {
             window.location.href = resp.url;
           }
           if (resp.ok) {
             const text = await resp.text();
-            const mw = parse(text);
-            app.value = {
-              isDark: false,
-              colorMap: useColors(mw).value,
-            };
-            markwhen.value = {
-              rawText: text,
-              parsed: mw,
-              transformed: mw.events as Sourced<EventGroup>,
-            };
+            syncFromRawText(text);
             showEditButton.value = true;
             showCopyLinkButton.value = false;
           }
@@ -94,34 +117,19 @@ export const useMarkwhenStore = defineStore("markwhen", () => {
       } catch {}
     } else if (route.hash && route.hash.startsWith("#mw=")) {
       const decoded = atob(route.hash.substring("#mw=".length));
-      const mw = parse(decoded);
-      app.value = {
-        isDark: false,
-        colorMap: useColors(mw).value,
-      };
-      markwhen.value = {
-        rawText: decoded,
-        parsed: mw,
-        transformed: mw.events as Sourced<EventGroup>,
-      };
+      syncFromRawText(decoded);
       showEditButton.value = true;
       showCopyLinkButton.value = false;
     } else {
       // Load sample data if no specific data is provided
       try {
-        const resp = await fetch('/sample.mw');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const resp = await fetch('/sample.mw', { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (resp.ok) {
           const text = await resp.text();
-          const mw = parse(text);
-          app.value = {
-            isDark: false,
-            colorMap: useColors(mw).value,
-          };
-          markwhen.value = {
-            rawText: text,
-            parsed: mw,
-            transformed: mw.events as Sourced<EventGroup>,
-          };
+          syncFromRawText(text);
           showEditButton.value = false;
           showCopyLinkButton.value = true;
         }
@@ -138,6 +146,15 @@ export const useMarkwhenStore = defineStore("markwhen", () => {
       app.value = s;
     },
     markwhenState: (s) => {
+      if (s?.rawText) {
+        markwhen.value = s;
+        try {
+          syncFromRawText(s.rawText);
+        } catch (error) {
+          console.error("Failed to sync markwhen state", error);
+        }
+        return;
+      }
       markwhen.value = s;
     },
     jumpToPath: ({ path }) => {
@@ -196,6 +213,12 @@ export const useMarkwhenStore = defineStore("markwhen", () => {
     postRequest("appState");
   };
   requestStateUpdate();
+
+  onScopeDispose(() => {
+    if (timelineDataListener && typeof window !== "undefined") {
+      window.removeEventListener("timeline-data", timelineDataListener as EventListener);
+    }
+  });
 
   return {
     app,

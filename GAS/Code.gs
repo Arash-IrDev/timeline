@@ -1,3 +1,31 @@
+function getUserProperty(key) {
+  return PropertiesService.getUserProperties().getProperty(key);
+}
+
+function setUserProperty(key, value) {
+  PropertiesService.getUserProperties().setProperty(key, value);
+}
+
+function setTimelineModeSidebar() {
+  setUserProperty(TIMELINE_OPEN_MODE_KEY, TIMELINE_OPEN_MODES.SIDEBAR);
+  SpreadsheetApp.getUi().alert('Timeline will now open in the sidebar.');
+}
+
+function setTimelineModePopup() {
+  setUserProperty(TIMELINE_OPEN_MODE_KEY, TIMELINE_OPEN_MODES.POPUP);
+  SpreadsheetApp.getUi().alert('Timeline will now open as a popup dialog.');
+}
+
+function setTimelineModeWindow() {
+  setUserProperty(TIMELINE_OPEN_MODE_KEY, TIMELINE_OPEN_MODES.WINDOW);
+  SpreadsheetApp.getUi().alert('Timeline will now open in a separate window (non-modal).');
+}
+
+function setTimelineModeWebApp() {
+  setUserProperty(TIMELINE_OPEN_MODE_KEY, TIMELINE_OPEN_MODES.WEB_APP);
+  SpreadsheetApp.getUi().alert('Timeline will now open as a separate tab (Web App).');
+}
+
 /**
  * Google Apps Script for Markwhen Timeline
  * Main functions for timeline display and data management
@@ -21,6 +49,15 @@ const TAG_COLORS = Object.freeze({
   '#Low': '#ffee80',
   '#Completed': '#bababa'
 });
+
+const TIMELINE_OPEN_MODES = Object.freeze({
+  SIDEBAR: 'SIDEBAR',
+  POPUP: 'POPUP',
+  WINDOW: 'WINDOW',
+  WEB_APP: 'WEB_APP'
+});
+
+const TIMELINE_OPEN_MODE_KEY = 'timelineOpenMode';
 
 function toTag(value) {
   if (value === null || value === undefined) return '';
@@ -226,9 +263,36 @@ function getBundleBase64() {
 }
 
 /** Opens the sidebar with index.html */
-function openSidebar() {
+function openTimeline() {
+  var ui = SpreadsheetApp.getUi();
+  var mode = (getUserProperty(TIMELINE_OPEN_MODE_KEY) || TIMELINE_OPEN_MODES.SIDEBAR);
+  
+  if (mode === TIMELINE_OPEN_MODES.WEB_APP) {
+    // Open Web App in new tab
+    var webAppUrl = getWebAppUrl();
+    if (webAppUrl) {
+      // Try to open in new tab using HTML dialog
+      var htmlContent = '<div style="font-family: Arial, sans-serif; padding: 20px; text-align: center;">' +
+        '<h3>📊 Project Timeline - Web App</h3>' +
+        '<p>Click the button below to open the timeline in a new tab:</p>' +
+        '<button onclick="window.open(\'' + webAppUrl + '\', \'_blank\')" ' +
+        'style="background: #4285f4; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; margin: 10px;">' +
+        '🚀 Open Timeline in New Tab</button>' +
+        '<p style="margin-top: 20px; font-size: 12px; color: #666;">Or copy this URL: <br><code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px;">' + webAppUrl + '</code></p>' +
+        '</div>';
+      
+      var htmlOutput = HtmlService.createHtmlOutput(htmlContent)
+        .setWidth(500)
+        .setHeight(300);
+      
+      ui.showModalDialog(htmlOutput, 'Open Timeline Web App');
+    } else {
+      ui.alert('Web App not deployed yet. Please use "Deploy Web App" from the menu first.', ui.ButtonSet.OK);
+    }
+    return;
+  }
+  
   var template = HtmlService.createTemplateFromFile('index');
-  // Provided for template compatibility; index ignores it but templating requires a defined var
   template.base64Data = '';
   var html = template.evaluate()
     .setTitle('Project Timeline')
@@ -236,16 +300,29 @@ function openSidebar() {
     .setHeight(800)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .setSandboxMode(HtmlService.SandboxMode.IFRAME);
-  SpreadsheetApp.getUi().showSidebar(html);
+
+  if (mode === TIMELINE_OPEN_MODES.POPUP) {
+    ui.showModalDialog(html, 'Project Timeline');
+  } else if (mode === TIMELINE_OPEN_MODES.WINDOW) {
+    ui.showModelessDialog(html, 'Project Timeline');
+  } else {
+    ui.showSidebar(html);
+  }
 }
 
 /** Add a custom menu */
 function onOpen() {
   var ui = SpreadsheetApp.getUi ? SpreadsheetApp.getUi() : DocumentApp.getUi();
   ui.createMenu('Timeline Tool')
-    .addItem('Show Timeline', 'openSidebar')
+    .addItem('Show Timeline', 'openTimeline')
+    .addSubMenu(ui.createMenu('Timeline Display Mode')
+      .addItem('Sidebar (default)', 'setTimelineModeSidebar')
+      .addItem('Popup dialog', 'setTimelineModePopup')
+      .addItem('Separate window (non-modal)', 'setTimelineModeWindow')
+      .addItem('Web App (separate tab)', 'setTimelineModeWebApp'))
     .addItem('Setup Sample Data', 'setupSampleData')
     .addItem('Test Timeline', 'testTimeline')
+    .addItem('Deploy Web App', 'deployWebApp')
     .addToUi();
 }
 
@@ -350,5 +427,75 @@ function testTimeline() {
     logClient('testTimeline', 'Test failed: ' + error.message);
     SpreadsheetApp.getUi().alert('Test failed: ' + error.message);
     return 'Test failed: ' + error.message;
+  }
+}
+
+/** Web App functions for separate tab functionality */
+function doGet() {
+  var template = HtmlService.createTemplateFromFile('webapp');
+  template.base64Data = '';
+  return template.evaluate()
+    .setTitle('Project Timeline - Web App')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .setSandboxMode(HtmlService.SandboxMode.IFRAME);
+}
+
+function getWebAppUrl() {
+  try {
+    var scriptId = ScriptApp.getScriptId();
+    var deployments = ScriptApp.getScript(scriptId).getDeployments();
+    
+    for (var i = 0; i < deployments.length; i++) {
+      var deployment = deployments[i];
+      if (deployment.getEntryPoint() === 'doGet') {
+        return deployment.getWebAppUrl();
+      }
+    }
+    return null;
+  } catch (error) {
+    logClient('getWebAppUrl', 'Error: ' + error.message);
+    return null;
+  }
+}
+
+function deployWebApp() {
+  try {
+    var scriptId = ScriptApp.getScriptId();
+    var script = ScriptApp.getScript(scriptId);
+    
+    // Check if deployment already exists
+    var deployments = script.getDeployments();
+    var existingDeployment = null;
+    
+    for (var i = 0; i < deployments.length; i++) {
+      var deployment = deployments[i];
+      if (deployment.getEntryPoint() === 'doGet') {
+        existingDeployment = deployment;
+        break;
+      }
+    }
+    
+    if (existingDeployment) {
+      // Update existing deployment
+      existingDeployment.update();
+      var url = existingDeployment.getWebAppUrl();
+      SpreadsheetApp.getUi().alert('Web App updated successfully!\n\nURL: ' + url + '\n\nYou can now use "Web App (separate tab)" mode.');
+    } else {
+      // Create new deployment
+      var deployment = script.deployAsWebApp()
+        .setDescription('Timeline Web App')
+        .setExecuteAs(ScriptApp.ExecutionType.USER_DEPLOYING)
+        .setAccess(ScriptApp.Access.ANYONE);
+      
+      var url = deployment.getWebAppUrl();
+      SpreadsheetApp.getUi().alert('Web App deployed successfully!\n\nURL: ' + url + '\n\nYou can now use "Web App (separate tab)" mode.');
+    }
+    
+    logClient('deployWebApp', 'Web App deployed successfully');
+    return true;
+  } catch (error) {
+    logClient('deployWebApp', 'Error: ' + error.message);
+    SpreadsheetApp.getUi().alert('Deployment failed: ' + error.message);
+    return false;
   }
 }

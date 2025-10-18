@@ -3,35 +3,101 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Project Timeline</title>
-
-  <!-- Kept for compatibility; we ignore it because we force SAMPLE_TEXT -->
-  <meta id="mw-data" data-b64="<?!= base64Data ?>" />
+  <title>Project Timeline - Web App</title>
 
   <?!= include('styles'); ?>
 
   <style>
-    html, body { height: 100%; margin: 0; }
-    #app { width: 100%; height: 100%; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    html, body { 
+      height: 100%; 
+      margin: 0; 
+      padding: 0;
+      overflow: hidden;
+    }
+    #app { 
+      width: 100%; 
+      height: 100vh; 
+      position: fixed;
+      top: 0;
+      left: 0;
+    }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+    }
+    
+    /* Web App specific styles */
+    .webapp-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      background: #1f1f1f;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 15px;
+      z-index: 1000;
+      font-size: 14px;
+    }
+    
+    .webapp-title {
+      font-weight: 600;
+    }
+    
+    .webapp-controls {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .webapp-btn {
+      background: #333;
+      border: none;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    
+    .webapp-btn:hover {
+      background: #555;
+    }
+    
+    .webapp-content {
+      margin-top: 40px;
+      height: calc(100vh - 40px);
+    }
   </style>
 </head>
 <body>
-  <div id="app"></div>
+  <div class="webapp-header">
+    <div class="webapp-title">📊 Project Timeline</div>
+    <div class="webapp-controls">
+      <button class="webapp-btn" onclick="refreshData()">🔄 Refresh</button>
+      <button class="webapp-btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+    </div>
+  </div>
+  
+  <div class="webapp-content">
+    <div id="app"></div>
+  </div>
 
   <script>
     // ------------------------------------------------------------
-    // 1) Get real data from Google Apps Script
+    // Web App specific functionality
     // ------------------------------------------------------------
     let REAL_DATA = '';
+    let refreshInterval = null;
 
     // Some bundles access process.env
     window.process = { env: { NODE_ENV: 'production' } };
 
-    // Minimal logger (also posts to Apps Script if available)
+    // Minimal logger
     function dbg(stage, payload) {
       try {
-        console.log(`[Timeline][${stage}]`, payload);
+        console.log(`[Timeline WebApp][${stage}]`, payload);
         if (typeof google !== 'undefined' && google.script && google.script.run) {
           const msg = (typeof payload === 'string') ? payload : JSON.stringify(payload);
           google.script.run
@@ -52,13 +118,42 @@
     };
 
     // ------------------------------------------------------------
-    // 2) Initialize window.raw (will be populated when data is fetched)
+    // Initialize state
     // ------------------------------------------------------------
-    window.raw = REAL_DATA; // some builds read from window.raw
+    window.raw = REAL_DATA;
     window.__markwhen_initial_state = window.__markwhen_initial_state || {};
 
     // ------------------------------------------------------------
-    // 3) Intercept fetches for sample text so no network is used
+    // Web App specific functions
+    // ------------------------------------------------------------
+    function refreshData() {
+      dbg('webapp_refresh', 'Manual refresh triggered');
+      fetchRealData();
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          dbg('fullscreen_error', err);
+        });
+      } else {
+        document.exitFullscreen().catch(err => {
+          dbg('fullscreen_error', err);
+        });
+      }
+    }
+
+    // Auto-refresh every 30 seconds
+    function startAutoRefresh() {
+      if (refreshInterval) clearInterval(refreshInterval);
+      refreshInterval = setInterval(() => {
+        dbg('webapp_auto_refresh', 'Auto-refreshing data');
+        fetchRealData();
+      }, 30000);
+    }
+
+    // ------------------------------------------------------------
+    // Intercept fetches for sample text
     // ------------------------------------------------------------
     (function interceptFetchForSample() {
       if (!('fetch' in window)) return;
@@ -68,7 +163,6 @@
         let url = '';
         try { url = (typeof input === 'string') ? input : (input && input.url) || ''; } catch (_){}
 
-        // Known sample endpoints or any .mw the bundle might try
         if (url.endsWith('/sample.mw') || url.includes('meridiem.markwhen.com') || url.endsWith('.mw')) {
           dbg('fetch_intercept', url);
           return new Response(REAL_DATA, {
@@ -79,9 +173,6 @@
         return realFetch(input, init);
       };
     })();
-
-    // Log the real data being used (for visibility)
-    dbg('raw_text_ok', REAL_DATA.slice(0, 120));
 
     function hydrateAndRenderTimeline(markwhenText) {
       REAL_DATA = markwhenText || '';
@@ -95,7 +186,7 @@
     }
 
     // ------------------------------------------------------------
-    // 4) Fetch real data from Google Apps Script first
+    // Fetch real data from Google Apps Script
     // ------------------------------------------------------------
     function fetchRealData() {
       if (!(google && google.script && google.script.run)) {
@@ -116,7 +207,7 @@
     }
 
     // ------------------------------------------------------------
-    // 5) Fetch bundle (Base64), robustly strip module syntax, then eval
+    // Bundle loading and execution
     // ------------------------------------------------------------
     function bootBundle(onReady) {
       if (!(google && google.script && google.script.run)) {
@@ -127,68 +218,48 @@
       google.script.run
         .withSuccessHandler(function (b64js) {
           try {
-            // Decode Base64
             let js = atob(b64js || '');
             dbg('bundle_fetch_ok', { length: js.length, head: js.slice(0, 120) });
 
-            // --- Fix known broken regexes from build, safely ---
-            const litRegex  = /\/\^\?\\s\*\//g;                     // /^\?\s*/ → /^\s*/
-            const ctorRegex = /new RegExp\(['"]\^\?\\s\*['"]\)/g;   // new RegExp('^?\s*') → new RegExp('^\s*')
+            // Fix known broken regexes from build
+            const litRegex  = /\/\^\?\\s\*\//g;
+            const ctorRegex = /new RegExp\(['"]\^\?\\s\*['"]\)/g;
             const litCount  = (js.match(litRegex)  || []).length;
             const ctorCount = (js.match(ctorRegex) || []).length;
             js = js.replace(litRegex, '/^\\s*/')
                    .replace(ctorRegex, "new RegExp('^\\s*')");
             dbg('bundle_patch_counts', { literal: litCount, ctor: ctorCount });
 
-            // --- Strip ES module syntax only if present ---
+            // Strip ES module syntax
             if (/\bexport\b|\bimport\b/.test(js)) {
-              // Remove all forms of "import ..." (including multiline/bare)
               js = js.replace(/^\s*import[\s\S]*?;[ \t]*$/gm, '');
-
-              // Transform "export default function/class Name ..." → keep decl + expose on window
               js = js.replace(/\bexport\s+default\s+(async\s+)?function\s+([A-Za-z$_]\w*)/g,
                               '$1function $2');
-
               js = js.replace(/\bexport\s+default\s+class\s+([A-Za-z$_]\w*)/g,
                               'class $1');
-
-              // Capture anonymous export default expressions:
-              // "export default (function(){...})" or "export default something"
               js = js.replace(/\bexport\s+default\s+([^\n;]+)/g,
                               'window.__bundle_default__ = ($1)');
-
-              // Turn "export const/let/var" into plain declarations
               js = js.replace(/\bexport\s+(const|let|var)\s+/g, '$1 ');
-
-              // Turn "export function" into "function"
               js = js.replace(/\bexport\s+(async\s+)?function\s+/g, '$1function ');
-
-              // Turn "export class" into "class"
               js = js.replace(/\bexport\s+class\s+/g, 'class ');
-
-              // Remove named export blocks: export { A, B as C };
               js = js.replace(/\bexport\s*\{[^}]*\};?/g, '');
-
-              // Remove leftover ESM-only "export * from" re-exports
               js = js.replace(/\bexport\s*\*\s*from\s*['"][^'"]+['"];?/g, '');
 
-              // If we removed "export default ..." without assigning,
-              // try to detect a top-level name and export it.
               if (!/window\.__bundle_default__\s*=/.test(js)) {
                 const m = js.match(/\b(class|function)\s+([A-Za-z$_]\w*)/);
                 if (m && m[2]) {
-                  js += `\n;try{window.__bundle_default__=${m[2]};}catch(_){}`; // best effort
+                  js += `\n;try{window.__bundle_default__=${m[2]};}catch(_){}`;
                 }
               }
             }
 
-            // Quick syntax sanity check before executing
+            // Syntax check
             try { new Function(js); } catch (syntaxErr) {
               dbg('bundle_syntax_error_preview', js.slice(0, 500));
               throw syntaxErr;
             }
 
-            // Provide minimal shims in GAS iframe if missing
+            // Provide shims
             try {
               window.globalThis = window.globalThis || window;
               window.self = window.self || window;
@@ -219,7 +290,7 @@
               }
             } catch(_){ }
 
-            // Execute by injecting a <script> tag to ensure browser-like scope
+            // Execute bundle
             const script = document.createElement('script');
             script.type = 'text/javascript';
             script.text = js;
@@ -267,7 +338,21 @@
       }
     }
 
-    fetchRealData();
+    // ------------------------------------------------------------
+    // Initialize Web App
+    // ------------------------------------------------------------
+    function initWebApp() {
+      dbg('webapp_init', 'Initializing Web App');
+      fetchRealData();
+      startAutoRefresh();
+    }
+
+    // Start when page loads
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initWebApp);
+    } else {
+      initWebApp();
+    }
   </script>
 </body>
 </html>
